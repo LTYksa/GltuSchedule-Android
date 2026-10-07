@@ -1,0 +1,38 @@
+﻿# ── Android / Gradle ──
+*.iml
+.gradle/
+/local.properties
+/.idea/
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+*.hprof
+
+# ── 构建产物 ──
+app-android/app/build/
+app-android/build/
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+bin/
+gen/
+out/
+release/
+
+# ── 签名与密钥（千万别传上去）──
+*.jks
+*.keystore
+keystore.properties
+signing.properties
+
+# ── 日志与临时文件 ──
+*.log
+*.tmp
+*.bak
+*.orig
+*.rej
