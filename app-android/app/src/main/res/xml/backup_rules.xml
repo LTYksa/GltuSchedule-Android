@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!-- 本地数据库与偏好设置随应用数据备份 -->
+    <include domain="database" path="." />
+    <include domain="sharedpref" path="." />
+</full-backup-content>

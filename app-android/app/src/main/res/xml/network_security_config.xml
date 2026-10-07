@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  网络安全配置：
+  课表导入需要在内嵌浏览器里打开学校教务系统，而多数教务系统（含 GLTU 的
+  http://jwcweb*.gltu.cn）仍使用明文 HTTP，因此这里允许明文流量。
+  本 App 自身只访问学校教务系统，不访问其他第三方服务。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

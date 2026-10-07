@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">GLTU 课表</string>
+    <string name="widget_description">在桌面查看今日与本周课程</string>
+    <string name="widget_title_today">今日课程</string>
+</resources>

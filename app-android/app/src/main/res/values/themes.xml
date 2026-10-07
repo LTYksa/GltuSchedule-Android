@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 基础主题：Compose 负责实际 UI，此处仅作为 Activity 的窗口基座（无 ActionBar）。 -->
+    <style name="Theme.GltuSchedule" parent="android:Theme.Material.Light.NoActionBar" />
+</resources>
