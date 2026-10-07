@@ -94,7 +94,7 @@
             android:name=".notification.DailyMaintenanceReceiver"
             android:exported="false">
             <intent-filter>
-                <action android:name="com.gltu.schedule.action.DAILY_MAINTENANCE" />
+                <action android:name="com.ltyksa.gltuschedule.action.DAILY_MAINTENANCE" />
             </intent-filter>
         </receiver>
     </application>

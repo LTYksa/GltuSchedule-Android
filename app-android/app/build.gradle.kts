@@ -8,13 +8,13 @@ plugins {
 }
 
 android {
-    namespace = "com.gltu.schedule"
+    namespace = "com.ltyksa.gltuschedule"
     compileSdk = 35
     // 显式指定 build-tools 版本（本机已安装 35.0.0）
     buildToolsVersion = "35.0.0"
 
     defaultConfig {
-        applicationId = "com.gltu.schedule"
+        applicationId = "com.ltyksa.gltuschedule"
         minSdk = 26
         targetSdk = 35
         versionCode = 10

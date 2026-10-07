@@ -5,6 +5,6 @@
 # Room / Compose / OkHttp / Jsoup 的官方 keep 规则已由各自 consumer rules 自动带上，
 # 一般无需手动添加。若开启混淆后遇到问题，常见补充（按需取消注释）：
 #
-# -keep class com.gltu.schedule.database.entity.** { *; }
-# -keep class com.gltu.schedule.model.** { *; }
+# -keep class com.ltyksa.gltuschedule.database.entity.** { *; }
+# -keep class com.ltyksa.gltuschedule.model.** { *; }
 # -dontwarn org.jsoup.**
