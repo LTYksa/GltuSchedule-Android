@@ -109,7 +109,18 @@ GltuSchedule 是一个**全程本地运行**的课程表 App，围绕桂林旅�
 
 > 目前**只有 Android 版**。iPhone / 鸿蒙用户请等后续适配。
 
-从 Releases 下载最新的 `app-debug.apk` 安装即可。
+### ⬇️ 直接下载
+
+**[GltuSchedule-0.10beta-debug.apk](https://github.com/LTYksa/GltuSchedule/releases/download/v0.10beta/GltuSchedule-0.10beta-debug.apk)** · 17.23 MB
+
+```
+SHA-256: 60ddd6018fa0f0b40290d4d17049b18bbfc9fc6dabdbf6e032e5cba1e74bca94
+```
+
+> 也可以到 [Releases](../../releases) 页面查看所有版本。
+> 本次是 **debug 签名**包，仅供测试与同学间分享；首次安装需允许「安装未知来源应用」。
+
+### ⚙️ 安装后建议设置
 
 - 系统要求：**Android 8.0（API 26）及以上**
 - 首次启动请允许「通知」权限，否则上课提醒无法弹出
