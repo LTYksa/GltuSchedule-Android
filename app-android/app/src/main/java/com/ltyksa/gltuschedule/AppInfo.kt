@@ -7,7 +7,7 @@ object AppInfo {
     const val NAME = "GLTU 课表"
 
     /** 版本号（与 app/build.gradle.kts 的 versionName 保持一致）。 */
-    const val VERSION = "0.10beta"
+    const val VERSION = "0.11beta"
 
     const val AUTHOR = "木下葵"
 

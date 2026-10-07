@@ -142,6 +142,66 @@ object HolidayManager {
         prefs(context).edit().putString(KEY_CUSTOM, encode(list)).apply()
     }
 
+    // ---------------- 调休（补课）规则 ----------------
+
+    private const val KEY_MAKEUP_OVERRIDES = "makeup_overrides"
+
+    /**
+     * 用户手动指定的调休映射：调休日 → 要补的星期。
+     * 存储格式 `2026-10-11:WEDNESDAY;…`
+     */
+    fun makeupOverrides(context: Context): Map<LocalDate, DayOfWeek> {
+        val raw = prefs(context).getString(KEY_MAKEUP_OVERRIDES, "") ?: ""
+        if (raw.isBlank()) return emptyMap()
+        val out = LinkedHashMap<LocalDate, DayOfWeek>()
+        for (part in raw.split(";")) {
+            val p = part.split(":")
+            if (p.size < 2) continue
+            try {
+                out[LocalDate.parse(p[0], fmt)] = DayOfWeek.valueOf(p[1])
+            } catch (_: Exception) {
+                // 跳过损坏的条目
+            }
+        }
+        return out
+    }
+
+    fun setMakeupOverride(context: Context, date: LocalDate, weekday: DayOfWeek) {
+        val map = LinkedHashMap(makeupOverrides(context))
+        map[date] = weekday
+        prefs(context).edit().putString(KEY_MAKEUP_OVERRIDES, encodeOverrides(map)).apply()
+        bump()
+    }
+
+    fun clearMakeupOverride(context: Context, date: LocalDate) {
+        val map = LinkedHashMap(makeupOverrides(context))
+        map.remove(date)
+        prefs(context).edit().putString(KEY_MAKEUP_OVERRIDES, encodeOverrides(map)).apply()
+        bump()
+    }
+
+    private fun encodeOverrides(map: Map<LocalDate, DayOfWeek>): String =
+        map.entries.joinToString(";") { "${fmt.format(it.key)}:${it.value.name}" }
+
+    /**
+     * 全部调休规则（自动推导 + 用户覆盖）。
+     * 返回 调休日 → 规则 的映射，方便按日期查。
+     */
+    fun makeupRules(context: Context): Map<LocalDate, MakeupRule> =
+        MakeupResolver.resolve(allHolidays(context), makeupOverrides(context))
+            .associateBy { it.date }
+
+    /**
+     * 某天实际要上「哪一天」的课。
+     * 调休日返回它代替的那一天；普通日子返回它自己。
+     */
+    fun effectiveDate(context: Context, date: LocalDate): LocalDate =
+        makeupRules(context)[date]?.sourceDate ?: date
+
+    /** 某天是否是调休上班日。 */
+    fun isMakeupDay(context: Context, date: LocalDate): Boolean =
+        allHolidays(context).any { it.type == HolidayType.MAKEUP && it.contains(date) }
+
     // ---------------- 汇总 ----------------
 
     /**

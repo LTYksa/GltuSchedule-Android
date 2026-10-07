@@ -13,6 +13,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import com.ltyksa.gltuschedule.data.GltuTimeTable
+import com.ltyksa.gltuschedule.data.HolidayManager
 import com.ltyksa.gltuschedule.data.HolidaySync
 import com.ltyksa.gltuschedule.data.SemesterStore
 import com.ltyksa.gltuschedule.database.AppDatabase
@@ -141,10 +142,19 @@ object ClassReminderScheduler {
 
         for (offset in 0 until horizonDays) {
             val date = today.plusDays(offset.toLong())
-            val week = weekOf(firstWeekMonday, date)
+            // 被屏蔽的日子（法定节假日 / 校历假期 / 周末开关命中）不排提醒。
+            // 补班日（调休上班的周末）在 isBlocked 里一律放行，不会被这里挡掉。
+            if (HolidayManager.isBlocked(context, date)) continue
+
+            // 调休（补课）感知：调休上班日上的是「它代替的那一天」的课，
+            // 所以用 eff 的星期匹配课程、用 eff 所在的周次判断周次
+            // （例如 10/11 周六补 10/8 周三 → 上的必须是第 6 周周三的课，而不是第 7 周周三的）。
+            // 闹钟的**触发日期仍是 date**（那天才上课），requestCode 也仍按 date 编码，保证旧闹钟能取消掉。
+            val eff = HolidayManager.effectiveDate(context, date)
+            val week = weekOf(firstWeekMonday, eff)
             if (week < 1) continue
             for (course in courses) {
-                if (course.dayOfWeek != date.dayOfWeek) continue
+                if (course.dayOfWeek != eff.dayOfWeek) continue
                 if (!course.occursOnWeek(week)) continue
                 val slot = GltuTimeTable.byIndex(course.startIndex) ?: continue
                 val start = runCatching { LocalTime.parse(slot.startTime) }.getOrNull() ?: continue

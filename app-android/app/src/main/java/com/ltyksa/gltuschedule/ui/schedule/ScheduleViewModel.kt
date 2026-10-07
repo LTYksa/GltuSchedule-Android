@@ -57,6 +57,41 @@ class ScheduleViewModel(app: Application) : AndroidViewModel(app) {
     private val _blockSettings = MutableStateFlow(HolidayManager.blockSettings(app))
     val blockSettings: StateFlow<HolidayManager.BlockSettings> = _blockSettings.asStateFlow()
 
+    /**
+     * 调休规则：调休上班日 → 规则（补哪一天的课）。
+     * 推导算法见 [MakeupResolver]；用户可在课表设置里手动覆盖。
+     */
+    private val _makeupRules = MutableStateFlow(HolidayManager.makeupRules(app))
+    val makeupRules: StateFlow<Map<java.time.LocalDate, com.ltyksa.gltuschedule.data.MakeupRule>> =
+        _makeupRules.asStateFlow()
+
+    /** 调休规则列表（按日期升序，供侧边栏展示）。 */
+    val makeupRuleList: StateFlow<List<com.ltyksa.gltuschedule.data.MakeupRule>> =
+        _makeupRules.map { it.values.sortedBy { r -> r.date } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * 每天都实际要上「哪一天」的课：调休日 → 源日期；普通日子 → 它自己。
+     * 课表网格按它取星期与周次 —— 调休日要连**周次**一起搬。
+     */
+    val effectiveDates: StateFlow<Map<java.time.LocalDate, java.time.LocalDate>> =
+        _makeupRules.map { rules -> rules.mapValues { it.value.sourceDate } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    /** 手动指定某天补周几的课。 */
+    fun setMakeupOverride(date: java.time.LocalDate, weekday: java.time.DayOfWeek) {
+        val ctx = getApplication<Application>()
+        HolidayManager.setMakeupOverride(ctx, date, weekday)
+        _makeupRules.value = HolidayManager.makeupRules(ctx)
+    }
+
+    /** 清除某天的手动覆盖，回到自动推导。 */
+    fun clearMakeupOverride(date: java.time.LocalDate) {
+        val ctx = getApplication<Application>()
+        HolidayManager.clearMakeupOverride(ctx, date)
+        _makeupRules.value = HolidayManager.makeupRules(ctx)
+    }
+
     fun setBlockSettings(settings: HolidayManager.BlockSettings) {
         HolidayManager.setBlockSettings(getApplication(), settings)
         _blockSettings.value = settings
@@ -81,6 +116,7 @@ class ScheduleViewModel(app: Application) : AndroidViewModel(app) {
         _showAllWeeks.value = SchedulePreferences.showAllWeeks(ctx)
         _themeMode.value = SchedulePreferences.themeMode(ctx)
         _blockSettings.value = HolidayManager.blockSettings(ctx)
+        _makeupRules.value = HolidayManager.makeupRules(ctx)
     }
 
     /**
@@ -115,6 +151,28 @@ class ScheduleViewModel(app: Application) : AndroidViewModel(app) {
     fun setSemesterName(name: String) {
         SemesterStore.setSemesterName(getApplication(), name)
         _semesterName.value = name.trim()
+    }
+
+    /**
+     * **设置当前是第几周**。
+     *
+     * 用户往往不知道"开学日期"，但一定知道"这周是第几周"。
+     * 这里用「本周周一 − (week−1) 周」反推出开学日期，再交给 [SemesterStore] 保存，
+     * 顺带把课表跳到该周。
+     */
+    fun setCurrentWeek(week: Int) {
+        val ctx = getApplication<Application>()
+        val w = week.coerceIn(1, 30)
+        val thisMonday = LocalDate.now()
+            .with(java.time.temporal.TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+        val startDate = thisMonday.minusWeeks((w - 1).toLong())
+        // 保留原有学期名（save 会用传入值覆盖）——空着就写"手动设置"
+        SemesterStore.save(ctx, startDate, _semesterName.value.ifBlank { "手动设置" })
+        _semesterName.value = SemesterStore.semesterName(ctx)
+        _firstMonday.value = SemesterStore.firstWeekMonday(ctx)
+        _startDateRaw.value = SemesterStore.startDateRaw(ctx)
+        _selectedWeek.value = w
+        rescheduleReminders()
     }
 
     // ---------------- 课表背景图 ----------------
@@ -250,11 +308,60 @@ class ScheduleViewModel(app: Application) : AndroidViewModel(app) {
             if (showAll) list else list.filter { it.occursOnWeek(week) }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** 选中那天的课程（日视图用）。 */
+    /**
+     * 选中那天的课程（日视图用）。**调休感知**：
+     * 调休日显示的是「源日期」那天的课，周次也按源日期算。
+     */
     val coursesOfDay: StateFlow<List<Course>> =
-        combine(coursesOfWeek, _selectedDay) { list, day ->
-            list.filter { it.dayOfWeek == day }.sortedBy { it.startIndex }
+        combine(
+            repository.observeWeekCourses(),
+            _selectedWeek,
+            _selectedDay,
+            weekDates,
+            combine(effectiveDates, _showAllWeeks) { e, s -> e to s },
+        ) { all, week, day, dates, effShow ->
+            val eff = effShow.first
+            val showAll = effShow.second
+            val idx = dates.indexOfFirst { java.time.DayOfWeek.from(it) == day }
+            val date = dates.getOrNull(idx)
+            val source = date?.let { eff[it] } ?: date
+            val weekday = source?.dayOfWeek ?: day
+            // 源日期可能落在别的周（如 9/28 补 10/7 的课）
+            val sourceWeek = if (source == null) {
+                week
+            } else {
+                val baseMonday = dates.firstOrNull()
+                    ?.with(java.time.temporal.TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY))
+                val srcMonday = source
+                    .with(java.time.temporal.TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY))
+                if (baseMonday == null) week
+                else week + java.time.temporal.ChronoUnit.WEEKS.between(baseMonday, srcMonday).toInt()
+            }
+            val raw = all.filter { it.dayOfWeek == weekday }
+            (if (showAll) raw else raw.filter { it.occursOnWeek(sourceWeek) })
+                .sortedBy { it.startIndex }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /**
+     * 日视图选中日的**有效周次**：调休日取源日期所在的周。
+     * 用于判断课程"是不是本周的"（灰显）。
+     */
+    val selectedSourceWeek: StateFlow<Int> =
+        combine(_selectedWeek, _selectedDay, weekDates, effectiveDates) { week, day, dates, eff ->
+            val idx = dates.indexOfFirst { java.time.DayOfWeek.from(it) == day }
+            val date = dates.getOrNull(idx)
+            val source = date?.let { eff[it] } ?: date
+            if (source == null) {
+                week
+            } else {
+                val baseMonday = dates.firstOrNull()
+                    ?.with(java.time.temporal.TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY))
+                val srcMonday = source
+                    .with(java.time.temporal.TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY))
+                if (baseMonday == null) week
+                else week + java.time.temporal.ChronoUnit.WEEKS.between(baseMonday, srcMonday).toInt()
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 1)
 
     val allCourses: StateFlow<List<Course>> =
         repository.observeWeekCourses()

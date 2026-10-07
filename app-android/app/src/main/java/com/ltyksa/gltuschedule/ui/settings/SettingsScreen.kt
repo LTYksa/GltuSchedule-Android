@@ -42,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -568,8 +569,7 @@ private fun ReminderMinutesDialog(
     )
 }
 
-/** 「关于」里的一行信息。 */
-@Composable
+/** 「关于」里的一行信息。 */@Composable
 private fun AboutRow(label: String, value: String) {
     Row {
         Text(

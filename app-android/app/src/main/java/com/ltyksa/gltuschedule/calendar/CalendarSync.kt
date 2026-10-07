@@ -11,7 +11,9 @@ import android.provider.CalendarContract
 import androidx.core.content.ContextCompat
 import com.ltyksa.gltuschedule.data.Classroom
 import com.ltyksa.gltuschedule.data.GltuTimeTable
+import com.ltyksa.gltuschedule.data.HolidayManager
 import com.ltyksa.gltuschedule.model.Course
+import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZoneId
@@ -39,6 +41,9 @@ object CalendarSync {
      * 规则：
      *  - 周次连续的课 → 一个「每周重复」事件（干净、条目少）
      *  - 单双周 / 不规则周次（如 4-5周,8周,11-13周(单)）→ 逐次写入，保证准确
+     *  - **调休（补课）感知**：某周的名义日期若是调休规则要「补」的那一天（如 10/8 周三），
+     *    这节课实际在调休日（如 10/11 周六）上，事件就写到调休日那天，并在描述里标注「调休补课」；
+     *    受影响的那门课**不用 RRULE**，改成逐次写入（调休打断了每周等间隔的规律）
      *  - 每次同步前先删除上次写入的 GLTU课表 事件，重复点击不会产生重复条目
      */
     fun sync(context: Context, courses: List<Course>, firstWeekMonday: LocalDate): Result {
@@ -57,6 +62,21 @@ object CalendarSync {
             var count = 0
             val zone = ZoneId.systemDefault()
 
+            // 调休与屏蔽信息**一次性取好**（避免在循环里反复读 prefs）
+            val rules = runCatching { HolidayManager.makeupRules(context).values }
+                .getOrDefault(emptyList())
+            // 调休反查表：源日期 → 调休日（如 10/8 → 10/11）
+            val makeupOfSource = LinkedHashMap<LocalDate, LocalDate>()
+            for (rule in rules.sortedBy { it.date }) {
+                makeupOfSource.putIfAbsent(rule.sourceDate, rule.date)
+            }
+            val makeupDays = rules.map { it.date }.toSet()
+            val blockSettings = HolidayManager.blockSettings(context)
+            val holidays = HolidayManager.allHolidays(context)
+            val isBlocked: (LocalDate) -> Boolean = { d ->
+                HolidayManager.isBlockedPure(d, blockSettings, holidays)
+            }
+
             for (course in courses) {
                 val slotStart = GltuTimeTable.byIndex(course.startIndex)?.startTime ?: continue
                 val slotEnd = GltuTimeTable.byIndex(course.endIndex)?.endTime ?: continue
@@ -74,10 +94,21 @@ object CalendarSync {
                 val weeks = courseWeeks(course, firstWeekMonday)
                 if (weeks.isEmpty()) continue
 
-                val contiguous = course.oddEven == 0 &&
-                    weeks.size == (weeks.last() - weeks.first() + 1)
+                // 这门课每一周实际写进日历的日期（调休搬运 / 调休停课 / 放假停课都已处理）
+                val occurrences = classDatesOf(
+                    firstWeekMonday, weeks, course.dayOfWeek,
+                    makeupOfSource, makeupDays, isBlocked,
+                )
+                if (occurrences.isEmpty()) continue
+                val shifted = occurrences.any { it.second }
 
-                if (contiguous) {
+                val contiguous = course.oddEven == 0 &&
+                    weeks.size == (weeks.last() - weeks.first() + 1) &&
+                    // 有停课的周次被剔除了 → 不能再按「每周重复」写，否则会凭空多出几节
+                    occurrences.size == weeks.size
+
+                if (contiguous && !shifted) {
+                    // 未受调休影响，沿用原来的「每周重复」写法
                     val firstDate = dateOfWeek(firstWeekMonday, weeks.first(), course.dayOfWeek)
                     insertEvent(
                         context, calendarId,
@@ -88,11 +119,14 @@ object CalendarSync {
                     )
                     count++
                 } else {
-                    for (w in weeks) {
-                        val date = dateOfWeek(firstWeekMonday, w, course.dayOfWeek)
+                    // 单双周 / 不规则周次 / **含调休周** → 逐次写入。
+                    // 调休把某一次课搬到了别的日子，RRULE 的「每周等间隔」假设不再成立，
+                    // 宁可多写几条，也不要在错误日期上凭空生成一节课。
+                    for ((date, isMakeup) in occurrences) {
                         insertEvent(
                             context, calendarId,
-                            title, location, desc,
+                            title, location,
+                            if (isMakeup) "$desc · 调休补课" else desc,
                             beginMillis(date, start, zone),
                             endMillis(date, end, zone),
                             rrule = null,
@@ -124,8 +158,49 @@ object CalendarSync {
         return (from..to).filter { course.occursOnWeek(it) }
     }
 
-    private fun dateOfWeek(firstWeekMonday: LocalDate, week: Int, dayOfWeek: java.time.DayOfWeek): LocalDate =
+    private fun dateOfWeek(firstWeekMonday: LocalDate, week: Int, dayOfWeek: DayOfWeek): LocalDate =
         firstWeekMonday.plusWeeks((week - 1).toLong()).plusDays((dayOfWeek.value - 1).toLong())
+
+    /**
+     * 一门课每一周**实际写进日历的上课日**（纯函数，便于单元测试）。
+     *
+     * 名义日期 = 第一周周一 + (W-1)*7 + (星期-1)，然后按三种情况修正：
+     *
+     *  1. **命中调休反查表**（那天放假、课被搬到调休日，如 10/8 周三 → 10/11 周六）
+     *     → 事件写到调休日，标记 `true`；
+     *  2. **名义日期本身是调休上班日**（如本来就排在周六的课，撞上 10/11 补周三的课）
+     *     → 那天全天按周三的课表走，**这节课不上** → 跳过。
+     *     不跳过的话，日历里会多出一节根本不存在的课，而且提醒侧（按调休后的星期匹配）
+     *     不会给它排提醒，两边会对不上；
+     *  3. **名义日期被假期屏蔽**且没有被补课安排（如 10/1 周四）→ 这节课不上 → 跳过。
+     *
+     * 因此返回的列表**可能比 [weeks] 短**（有停课时），调用方据此决定能否用 RRULE。
+     *
+     * @param makeupOfSource 源日期 → 调休日
+     * @param makeupDays 所有调休上班日
+     * @param isBlocked 该日期是否被假期屏蔽（传 [HolidayManager.isBlockedPure] 的结果）
+     * @return (实际日期, 是否调休补课)，按周次升序，已剔除停课的周
+     */
+    internal fun classDatesOf(
+        firstWeekMonday: LocalDate,
+        weeks: List<Int>,
+        dayOfWeek: DayOfWeek,
+        makeupOfSource: Map<LocalDate, LocalDate>,
+        makeupDays: Set<LocalDate> = emptySet(),
+        isBlocked: (LocalDate) -> Boolean = { false },
+    ): List<Pair<LocalDate, Boolean>> = weeks.mapNotNull { w ->
+        val nominal = dateOfWeek(firstWeekMonday, w, dayOfWeek)
+        val makeupDate = makeupOfSource[nominal]
+        when {
+            // ① 这天放假、课被搬到调休日
+            makeupDate != null -> makeupDate to true
+            // ② 这天是调休上班日 → 按别的星期的课表走，本课不上
+            nominal in makeupDays -> null
+            // ③ 这天放假且没有补课安排 → 本课不上
+            isBlocked(nominal) -> null
+            else -> nominal to false
+        }
+    }
 
     private fun beginMillis(date: LocalDate, time: LocalTime, zone: ZoneId): Long =
         date.atTime(time).atZone(zone).toInstant().toEpochMilli()

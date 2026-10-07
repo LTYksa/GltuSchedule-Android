@@ -78,10 +78,14 @@ import com.ltyksa.gltuschedule.data.Classroom
 import com.ltyksa.gltuschedule.data.CourseColor
 import com.ltyksa.gltuschedule.data.GltuTimeTable
 import com.ltyksa.gltuschedule.data.HolidayManager
+import com.ltyksa.gltuschedule.data.MakeupRule
 import com.ltyksa.gltuschedule.data.TimeSlot
+import com.ltyksa.gltuschedule.data.weekdayLabel
 import com.ltyksa.gltuschedule.model.Course
 import java.time.DayOfWeek
 import java.time.LocalDate
+import java.time.temporal.ChronoUnit
+import java.time.temporal.TemporalAdjusters
 import kotlin.math.ceil
 import kotlinx.coroutines.launch
 
@@ -94,6 +98,9 @@ private val DATE_BOX = 26.dp
 
 /** 非本周课程统一用灰色。 */
 private val DIM_GRAY = Color(0xFF9E9E9E)
+
+/** 调休（补课）标记色。 */
+private val MAKEUP_COLOR = Color(0xFFB26A00)
 
 @Composable
 fun ScheduleScreen(
@@ -117,6 +124,7 @@ fun ScheduleScreen(
     val selectedDay by viewModel.selectedDay.collectAsStateWithLifecycle()
     val dayLabel by viewModel.selectedDayLabel.collectAsStateWithLifecycle()
     val dayOrder by viewModel.dayOrder.collectAsStateWithLifecycle()
+    val selectedSourceWeek by viewModel.selectedSourceWeek.collectAsStateWithLifecycle()
     val maxPeriods by viewModel.maxPeriods.collectAsStateWithLifecycle()
     val weekStart by viewModel.weekStart.collectAsStateWithLifecycle()
     val showAllWeeks by viewModel.showAllWeeks.collectAsStateWithLifecycle()
@@ -124,6 +132,10 @@ fun ScheduleScreen(
     val firstMonday by viewModel.firstMonday.collectAsStateWithLifecycle()
     val startDate by viewModel.startDateRaw.collectAsStateWithLifecycle()
     val blockSettings by viewModel.blockSettings.collectAsStateWithLifecycle()
+    val makeupRules by viewModel.makeupRules.collectAsStateWithLifecycle()
+    val makeupRuleList by viewModel.makeupRuleList.collectAsStateWithLifecycle()
+    val effectiveDates by viewModel.effectiveDates.collectAsStateWithLifecycle()
+    val allCourses by viewModel.allCourses.collectAsStateWithLifecycle()
     val hasBackground by viewModel.hasBackground.collectAsStateWithLifecycle()
     val bgVersion by viewModel.backgroundVersion.collectAsStateWithLifecycle()
 
@@ -148,13 +160,19 @@ fun ScheduleScreen(
     val blockedDays = remember(weekDates, blockSettings, holidayVersion) {
         weekDates.map { d -> HolidayManager.isBlocked(context, d) }
     }
-    // 日期下标：优先显示假期名；纯周末（没有具名假期）且被屏蔽时显示"周末"
-    val dateLabels = remember(holidayLabels, blockedDays, weekDates) {
+    // ③ 调休标记 —— 调休上班日要显示「调·补周三」这样的提示
+    val makeupOfDay = remember(weekDates, makeupRules) {
+        weekDates.map { d -> makeupRules[d] }
+    }
+    // 日期下标：调休标记 > 假期名 > 纯周末被屏蔽时的「周末」
+    val dateLabels = remember(holidayLabels, blockedDays, weekDates, makeupOfDay) {
         weekDates.indices.map { i ->
-            holidayLabels[i]
+            makeupOfDay[i]?.let { "调·${weekdayLabel(it.sourceWeekday)}" }
+                ?: holidayLabels[i]
                 ?: if (blockedDays[i] && HolidayManager.isWeekend(weekDates[i])) "周末" else null
         }
     }
+    val makeupFlags = remember(makeupOfDay) { makeupOfDay.map { it != null } }
 
     val selectedIndex = remember(selectedDay, weekDates) {
         weekDates.indexOfFirst { DayOfWeek.from(it) == selectedDay }
@@ -185,7 +203,8 @@ fun ScheduleScreen(
                 showAllWeeks = showAllWeeks,
                 themeMode = themeMode,
                 startDate = startDate,
-                holidaySettings = blockSettings,
+                makeupRules = makeupRuleList,
+                currentWeek = week,
                 hasBackground = hasBackground,
                 onClose = { scope.launch { drawerState.close() } },
                 onMaxPeriodsChange = viewModel::setMaxPeriods,
@@ -194,7 +213,9 @@ fun ScheduleScreen(
                 onThemeModeChange = viewModel::setThemeMode,
                 onSetStartDate = viewModel::setStartDate,
                 onSetSemesterName = viewModel::setSemesterName,
-                onHolidaySettingsChange = viewModel::setBlockSettings,
+                onSetCurrentWeek = viewModel::setCurrentWeek,
+                onSetMakeupOverride = viewModel::setMakeupOverride,
+                onClearMakeupOverride = viewModel::clearMakeupOverride,
                 onSaveBackgroundBitmap = { bmp -> viewModel.setBackgroundBitmap(bmp) },
                 onClearBackground = viewModel::clearBackground,
             )
@@ -244,15 +265,19 @@ fun ScheduleScreen(
                         selectedDay = selectedDay,
                         labels = dateLabels,
                         blocked = blockedDays,
+                        makeup = makeupFlags,
                         // 只切换选中日期，不跳日视图（只有点「日」按钮才切换）
                         onPickDay = { day -> viewModel.selectDay(day) },
                     )
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                     WeekGridView(
-                        courses = courses,
+                        courses = allCourses,
                         timeSlots = timeSlots,
                         dayOrder = dayOrder,
-                        currentWeek = week,
+                        weekDates = weekDates,
+                        firstMonday = firstMonday,
+                        showAllWeeks = showAllWeeks,
+                        effectiveDates = effectiveDates,
                         blockedDaysByIndex = blockedDays,
                         onWallpaper = background != null,
                         onCourseClick = { detailCourse = it },
@@ -265,9 +290,12 @@ fun ScheduleScreen(
                     DayListView(
                         dayLabel = dayLabel,
                         courses = dayCourses,
-                        currentWeek = week,
+                        currentWeek = selectedSourceWeek,
                         holidayName = selectedDayLabel,
                         blocked = selectedDayBlocked,
+                        makeup = selectedIndex >= 0 && makeupFlags.getOrNull(selectedIndex) == true,
+                        makeupText = if (selectedIndex >= 0) makeupOfDay.getOrNull(selectedIndex)?.summary
+                        else null,
                         onWallpaper = background != null,
                         onCourseClick = { detailCourse = it },
                         onAdd = onAddCourse,
@@ -404,10 +432,12 @@ private fun WeekDateRow(
     dayOrder: List<Pair<String, DayOfWeek>>,
     todayIndex: Int,
     selectedDay: DayOfWeek,
-    /** 假期名（日历事实，不随屏蔽开关变化）。 */
+    /** 假期名 / 调休标记（日历事实，不随屏蔽开关变化）。 */
     labels: List<String?>,
     /** 是否屏蔽课程（受开关控制，只影响底色与文字颜色）。 */
     blocked: List<Boolean>,
+    /** 是否是调休上班日（要补课）。 */
+    makeup: List<Boolean>,
     onPickDay: (DayOfWeek) -> Unit,
 ) {
     Row(modifier = Modifier.fillMaxWidth()) {
@@ -436,6 +466,7 @@ private fun WeekDateRow(
                     val isSelected = day == selectedDay
                     val holidayLabel = labels.getOrNull(idx)
                     val isBlocked = blocked.getOrNull(idx) == true
+                    val isMakeup = makeup.getOrNull(idx) == true
                     Column(
                         modifier = Modifier
                             .width(colW)
@@ -459,6 +490,7 @@ private fun WeekDateRow(
                                     when {
                                         isBlocked -> MaterialTheme.colorScheme.errorContainer
                                         isToday -> MaterialTheme.colorScheme.primary
+                                        isMakeup -> MAKEUP_COLOR.copy(alpha = 0.16f)
                                         isSelected -> MaterialTheme.colorScheme.primaryContainer
                                         else -> Color.Transparent
                                     }
@@ -477,7 +509,7 @@ private fun WeekDateRow(
                             )
                         }
                         Spacer(Modifier.height(3.dp))
-                        // 假期名：始终显示（不管有没有开屏蔽）；被屏蔽时标红，未屏蔽时灰色
+                        // 假期名 / 调休标记：始终显示（不管有没有开屏蔽）
                         if (holidayLabel != null) {
                             Text(
                                 text = holidayLabel,
@@ -485,9 +517,13 @@ private fun WeekDateRow(
                                 lineHeight = 12.sp,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
-                                fontWeight = if (isBlocked) FontWeight.Medium else FontWeight.Normal,
-                                color = if (isBlocked) MaterialTheme.colorScheme.error
-                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontWeight = if (isBlocked || isMakeup) FontWeight.Medium
+                                else FontWeight.Normal,
+                                color = when {
+                                    isBlocked -> MaterialTheme.colorScheme.error
+                                    isMakeup -> MAKEUP_COLOR
+                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                },
                                 modifier = Modifier.padding(horizontal = 1.dp),
                             )
                         } else {
@@ -504,10 +540,15 @@ private fun WeekDateRow(
 
 @Composable
 private fun WeekGridView(
+    /** 全部课程。**不能预筛周次** —— 调休日的周次要按源日期算。 */
     courses: List<Course>,
     timeSlots: List<TimeSlot>,
     dayOrder: List<Pair<String, DayOfWeek>>,
-    currentWeek: Int,
+    weekDates: List<LocalDate>,
+    firstMonday: LocalDate,
+    showAllWeeks: Boolean,
+    /** 调休日 → 它代替的那一天（连周次一起搬）。 */
+    effectiveDates: Map<LocalDate, LocalDate>,
     blockedDaysByIndex: List<Boolean>,
     onWallpaper: Boolean,
     onCourseClick: (Course) -> Unit,
@@ -520,19 +561,19 @@ private fun WeekGridView(
         return
     }
     val vScroll = rememberScrollState()
+    val firstMondayNorm = firstMonday.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+    val weekOf: (LocalDate) -> Int = { d ->
+        (ChronoUnit.WEEKS.between(
+            firstMondayNorm,
+            d.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)),
+        ) + 1).toInt()
+    }
 
     BoxWithConstraints(modifier = modifier) {
         val dayColW = (maxWidth - TIME_COL_W) / 7
         // 找不到节次时返回 -1（而不是 0）。返回 0 会把"超出显示节数"的课
         // 画到第一行（08:20），视觉上完全错位。
         val rowIndexOf: (Int) -> Int = { idx -> timeSlots.indexOfFirst { it.index == idx } }
-        val dayIndexOf: (DayOfWeek) -> Int = { d ->
-            dayOrder.indexOfFirst { it.second == d }.let { if (it < 0) 0 else it }
-        }
-        // 被屏蔽的星期（受三个开关控制）
-        val blockedWeekdays = dayOrder.mapIndexedNotNull { idx, (_, day) ->
-            if (blockedDaysByIndex.getOrNull(idx) == true) day else null
-        }.toSet()
 
         Column(modifier = Modifier.verticalScroll(vScroll)) {
             Box(
@@ -571,7 +612,6 @@ private fun WeekGridView(
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold,
                             )
-                            // 上下课时间合并成一个两行文本，行高收紧，两行贴在一起
                             Text(
                                 text = "${slot.startTime}\n${slot.endTime}",
                                 fontSize = 8.sp,
@@ -583,42 +623,54 @@ private fun WeekGridView(
                     }
                 }
 
-                // 课程格子
-                val grouped = courses
-                    .filter { it.dayOfWeek !in blockedWeekdays }   // 节假日屏蔽
-                    // 起始节次不在"显示节数"范围内（例如只显示前 6 节，而课在第 10 节）的课直接跳过
-                    .filter { rowIndexOf(it.startIndex) >= 0 }
-                    .groupBy { it.dayOfWeek to rowIndexOf(it.startIndex) }
+                // 课程格子：逐列处理，调休日按「源日期」取星期与周次
+                dayOrder.forEachIndexed { colIdx, (_, _) ->
+                    val date = weekDates.getOrNull(colIdx) ?: return@forEachIndexed
+                    // 被屏蔽的日期不排课（调休日不会被屏蔽，见 HolidayManager.isBlockedPure）
+                    if (blockedDaysByIndex.getOrNull(colIdx) == true) return@forEachIndexed
 
-                grouped.forEach { (key, list) ->
-                    val (day, rowStart) = key
-                    if (rowStart < 0 || rowStart > timeSlots.lastIndex) return@forEach
-                    val current = list.filter { it.occursOnWeek(currentWeek) }
+                    val eff = effectiveDates[date] ?: date
+                    val isMakeup = eff != date
+                    val effWeek = weekOf(eff)
+
+                    val raw = courses.filter {
+                        it.dayOfWeek == eff.dayOfWeek && rowIndexOf(it.startIndex) >= 0
+                    }
+                    val current = raw.filter { it.occursOnWeek(effWeek) }
                     val currentNames = current.map { it.name }.toSet()
                     // 非本周课程：与本周课程同名的直接不显示（避免重复占位）
-                    val others = list.filter {
-                        !it.occursOnWeek(currentWeek) && it.name !in currentNames
+                    val others = if (showAllWeeks) {
+                        raw.filter { !it.occursOnWeek(effWeek) && it.name !in currentNames }
+                    } else {
+                        emptyList()
                     }
                     val ordered = current + others
-                    if (ordered.isEmpty()) return@forEach
+                    if (ordered.isEmpty()) return@forEachIndexed
 
-                    val laneW = dayColW / ordered.size
-                    ordered.forEachIndexed { lane, course ->
-                        // 结束节次若超出显示范围，就画到最后一行，而不是跳回第 0 行
-                        val endRow = rowIndexOf(course.endIndex)
-                            .let { if (it < 0) timeSlots.lastIndex else it }
-                            .coerceAtLeast(rowStart)
-                        CourseGridCell(
-                            course = course,
-                            x = TIME_COL_W + dayColW * dayIndexOf(day) + laneW * lane,
-                            y = ROW_H * rowStart,
-                            width = laneW,
-                            height = ROW_H * (endRow - rowStart + 1),
-                            dimmed = lane >= current.size,
-                            onWallpaper = onWallpaper,
-                            onClick = { onCourseClick(course) },
-                        )
-                    }
+                    ordered.sortedBy { rowIndexOf(it.startIndex) }
+                        .groupBy { rowIndexOf(it.startIndex) }
+                        .forEach { (rowStart, group) ->
+                            if (rowStart < 0 || rowStart > timeSlots.lastIndex) return@forEach
+                            val laneW = dayColW / group.size
+                            val currentCount = group.count { it.occursOnWeek(effWeek) }
+                            group.forEachIndexed { lane, course ->
+                                // 结束节次若超出显示范围，就画到最后一行，而不是跳回第 0 行
+                                val endRow = rowIndexOf(course.endIndex)
+                                    .let { if (it < 0) timeSlots.lastIndex else it }
+                                    .coerceAtLeast(rowStart)
+                                CourseGridCell(
+                                    course = course,
+                                    x = TIME_COL_W + dayColW * colIdx + laneW * lane,
+                                    y = ROW_H * rowStart,
+                                    width = laneW,
+                                    height = ROW_H * (endRow - rowStart + 1),
+                                    dimmed = lane >= currentCount,
+                                    makeup = isMakeup,
+                                    onWallpaper = onWallpaper,
+                                    onClick = { onCourseClick(course) },
+                                )
+                            }
+                        }
                 }
             }
         }
@@ -638,6 +690,8 @@ private fun CourseGridCell(
     width: Dp,
     height: Dp,
     dimmed: Boolean,
+    /** 是否是调休日补上来的课（要打「调」字标记）。 */
+    makeup: Boolean,
     onWallpaper: Boolean,
     onClick: () -> Unit,
 ) {
@@ -716,6 +770,25 @@ private fun CourseGridCell(
                 )
             }
         }
+        // 调休标记：右下角的「调」字（右下通常是空白，不会挡住课程名）
+        if (makeup) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 1.dp, bottom = 1.dp)
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(MAKEUP_COLOR)
+                    .padding(horizontal = 2.dp, vertical = 0.5.dp),
+            ) {
+                Text(
+                    text = "调",
+                    fontSize = 8.sp,
+                    lineHeight = 9.sp,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+        }
     }
 }
 
@@ -736,6 +809,10 @@ private fun DayListView(
     currentWeek: Int,
     holidayName: String?,
     blocked: Boolean,
+    /** 调休日：要补课，显示「调」标记。 */
+    makeup: Boolean,
+    /** 调休摘要，如「补 10/8（周三）的课」。 */
+    makeupText: String?,
     onWallpaper: Boolean,
     onCourseClick: (Course) -> Unit,
     onAdd: () -> Unit,
@@ -749,8 +826,25 @@ private fun DayListView(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(dayLabel, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            // 假期名始终显示；后面跟的状态取决于是否被屏蔽
-            if (holidayName != null) {
+            // 调休优先展示：说明这天补的是哪天的课
+            if (makeup && makeupText != null) {
+                Spacer(Modifier.width(8.dp))
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(MAKEUP_COLOR)
+                        .padding(horizontal = 4.dp, vertical = 1.dp),
+                ) {
+                    Text("调", fontSize = 10.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                }
+                Spacer(Modifier.width(4.dp))
+                Text(
+                    makeupText,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MAKEUP_COLOR,
+                )
+            } else if (holidayName != null) {
+                // 假期名始终显示；后面跟的状态取决于是否被屏蔽
                 Spacer(Modifier.width(8.dp))
                 Text(
                     text = if (blocked) "$holidayName · 不排课" else holidayName,

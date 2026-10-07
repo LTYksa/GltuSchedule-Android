@@ -1,7 +1,22 @@
-﻿# Gradle
+# Gradle
 .gradle/
 build/
 local.properties
 .idea/
 *.iml
 *.apk
+*.aab
+
+# 签名材料：千万不要提交
+keystore.properties
+signing.properties
+*.jks
+*.keystore
+*.p12
+*.p7b
+*.pepk
+
+# 系统
+.DS_Store
+Thumbs.db
+*.log
