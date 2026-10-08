@@ -58,12 +58,15 @@ class ScheduleWidgetFactory(private val context: Context) : RemoteViewsService.R
     override fun hasStableIds(): Boolean = true
 
     private fun loadTodayCourses(): List<WidgetItem> {
-        val today = LocalDate.now()
+        val now = java.time.LocalDateTime.now()
+        // 23:30 之后显示「明天」的课；其余时间显示今天
+        val date = WidgetTiming.displayDate(now)
+        val isTomorrow = date != now.toLocalDate()
 
         // 节假日屏蔽（与课表页同一套判定）
-        if (HolidayManager.isBlocked(context, today)) {
-            val name = HolidayManager.holidayNameOf(context, today)
-                ?: if (HolidayManager.isWeekend(today)) "周末" else "假期"
+        if (HolidayManager.isBlocked(context, date)) {
+            val name = HolidayManager.holidayNameOf(context, date)
+                ?: if (HolidayManager.isWeekend(date)) "周末" else "假期"
             return listOf(
                 WidgetItem(
                     name = if (name == "周末") "今天是周末" else "假期：$name",
@@ -76,14 +79,28 @@ class ScheduleWidgetFactory(private val context: Context) : RemoteViewsService.R
         }
 
         val data = WidgetDataHolder.source?.load(
-            DayOfWeek.from(today),
+            DayOfWeek.from(date),
             SemesterStore.firstWeekMonday(context),
         ) ?: return listOf(
             WidgetItem("点击进入 App 并导入课表", "支持手动添加 / 分享码 / 教务系统导入", "", "", GRAY),
         )
 
         if (data.todayCourses.isEmpty()) {
-            return listOf(WidgetItem("今天没有课", "享受你的休息日", "", "", GRAY))
+            return listOf(
+                WidgetItem(
+                    if (isTomorrow) "明天没有课" else "今天没有课",
+                    "享受你的休息日",
+                    "", "", GRAY,
+                ),
+            )
+        }
+
+        // 今天的课全上完了 → 不再罗列已结束的课，直接提示休息
+        // （显示「明天」时不适用：那时候的课还没开始呢）
+        if (!isTomorrow && WidgetTiming.allDone(now, data.todayCourses)) {
+            return listOf(
+                WidgetItem("今天的课都上完啦", "好好休息 🎉", "", "", GRAY),
+            )
         }
 
         return data.todayCourses

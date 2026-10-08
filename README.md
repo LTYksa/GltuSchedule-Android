@@ -1,7 +1,10 @@
-# GltuSchedule
+# GltuSchedule · 安卓版
 
 > ## 🎓 专为 **桂林旅游学院（GLTU）** 同学做的课程表 Android 客户端
-> **版本 0.11beta** · 作者 **木下葵**
+> **版本 0.14.0** · 作者 **木下葵**
+
+> 📱 **鸿蒙版已发布** → **[GltuSchedule-HarmonyOS](https://github.com/LTYksa/GltuSchedule-HarmonyOS)**
+> （纯血鸿蒙 HarmonyOS NEXT 原生重写，ArkTS + ArkUI）
 
 GltuSchedule 是一个**全程本地运行**的课程表 App，围绕桂林旅游学院教务系统的真实页面结构开发：
 一键导入本校课表、按课程自动配色、中国大陆法定节假日自动屏蔽、桌面小部件、
@@ -18,13 +21,14 @@ GltuSchedule 是一个**全程本地运行**的课程表 App，围绕桂林旅�
 
 | 平台 | 状态 |
 |---|---|
-| **Android** | ✅ **当前版本仅支持 Android**（Android 8.0 / API 26 及以上） |
+| **Android** | ✅ **本仓库**（Android 8.0 / API 26 及以上） |
+| **HarmonyOS** | ✅ **已完成** → [GltuSchedule-HarmonyOS](https://github.com/LTYksa/GltuSchedule-HarmonyOS) |
 | iOS | ⏳ 后续适配 |
-| HarmonyOS | ⏳ 后续适配 |
 | 其他 | ⏳ 后续适配 |
 
-> ⚠️ **现阶段本软件只能装在安卓手机上使用**，iPhone / 鸿蒙设备暂时用不了。
-> 后续会为其他系统做适配，届时会在这个仓库更新进展。
+> 💡 **鸿蒙用户请看另一个仓库**：[GltuSchedule-HarmonyOS](https://github.com/LTYksa/GltuSchedule-HarmonyOS)。
+> 纯血鸿蒙（HarmonyOS NEXT）不再兼容 Android，APK 装不上，因此鸿蒙版是用
+> **ArkTS + ArkUI** 完整重写的原生应用，功能与安卓版对齐。
 
 ---
 
@@ -131,14 +135,15 @@ App 会把那天**当成被补的那一天**来显示课程 —— 连**周次**
 
 ## 📱 安装（Android）
 
-> 目前**只有 Android 版**。iPhone / 鸿蒙用户请等后续适配。
+> 📱 **鸿蒙用户**：请到 **[GltuSchedule-HarmonyOS](https://github.com/LTYksa/GltuSchedule-HarmonyOS)**
+> 下载 `.app` 安装包。iPhone 用户请等后续适配。
 
 ### ⬇️ 直接下载
 
-**[GltuSchedule-0.11beta-debug.apk](https://github.com/LTYksa/GltuSchedule/releases/download/v0.11beta/GltuSchedule-0.11beta-debug.apk)** · 17.46 MB
+**[GltuSchedule-0.14.0-debug.apk](https://github.com/LTYksa/GltuSchedule-Android/releases/download/v0.14.0/GltuSchedule-0.14.0-debug.apk)** · 17.35 MB
 
 ```
-SHA-256: 60ddd6018fa0f0b40290d4d17049b18bbfc9fc6dabdbf6e032e5cba1e74bca94
+SHA-256: 937e17914b6fb32dd454e8bc281ba3ee81c6f67ae0eba54a2e158b63aeaa3bf4
 ```
 
 > 也可以到 [Releases](../../releases) 页面查看所有版本。
@@ -156,8 +161,8 @@ SHA-256: 60ddd6018fa0f0b40290d4d17049b18bbfc9fc6dabdbf6e032e5cba1e74bca94
 ## 🔨 从源码构建
 
 ```bash
-git clone https://github.com/<你的用户名>/GltuSchedule.git
-cd GltuSchedule/app-android
+git clone https://github.com/<你的用户名>/GltuSchedule-Android.git
+cd GltuSchedule-Android/app-android
 ./gradlew assembleDebug          # Windows: gradlew.bat assembleDebug
 ```
 
@@ -185,7 +190,7 @@ cd GltuSchedule/app-android
 ## 📂 项目结构
 
 ```
-GltuSchedule/
+GltuSchedule-Android/
 ├── app-android/                    ← Android 工程（Android Studio 打开这个目录）
 │   └── app/src/main/java/com/gltu/schedule/
 │       ├── AppInfo.kt              应用信息（版本 / 作者 / 仓库地址）

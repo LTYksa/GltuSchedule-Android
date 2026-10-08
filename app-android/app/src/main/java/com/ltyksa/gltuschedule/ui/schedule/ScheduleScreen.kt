@@ -114,6 +114,8 @@ fun ScheduleScreen(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
 
     val week by viewModel.selectedWeek.collectAsStateWithLifecycle()
+    // 今天实际是第几周 —— 与 week（正在浏览的周）不同，侧边栏「设置当前周次」要用这个
+    val currentWeek by viewModel.currentWeek.collectAsStateWithLifecycle()
     val semester by viewModel.semesterName.collectAsStateWithLifecycle()
     val mode by viewModel.viewMode.collectAsStateWithLifecycle()
     val courses by viewModel.coursesOfWeek.collectAsStateWithLifecycle()
@@ -204,7 +206,7 @@ fun ScheduleScreen(
                 themeMode = themeMode,
                 startDate = startDate,
                 makeupRules = makeupRuleList,
-                currentWeek = week,
+                currentWeek = currentWeek,
                 hasBackground = hasBackground,
                 onClose = { scope.launch { drawerState.close() } },
                 onMaxPeriodsChange = viewModel::setMaxPeriods,

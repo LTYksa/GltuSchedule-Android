@@ -7,6 +7,7 @@ import com.ltyksa.gltuschedule.data.SemesterStore
 import com.ltyksa.gltuschedule.di.AppContainer
 import com.ltyksa.gltuschedule.notification.ClassReminderScheduler
 import com.ltyksa.gltuschedule.widget.WidgetDataHolder
+import com.ltyksa.gltuschedule.widget.WidgetRefreshScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -24,6 +25,9 @@ class GltuScheduleApp : Application() {
 
         // 注入小部件数据源（Room 实现）
         WidgetDataHolder.source = container.widgetDataSource
+
+        // 排小部件的「准点刷新」（23:30 翻明天 / 最后一节课下课报休息）
+        runCatching { WidgetRefreshScheduler.schedule(this) }
 
         // 上课提醒通知渠道
         ClassReminderScheduler.ensureChannel(this)

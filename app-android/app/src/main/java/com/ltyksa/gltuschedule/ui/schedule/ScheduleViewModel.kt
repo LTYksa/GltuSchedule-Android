@@ -17,6 +17,8 @@ import com.ltyksa.gltuschedule.repository.ScheduleRepository
 import com.ltyksa.gltuschedule.widget.ScheduleWidgetProvider
 import java.time.DayOfWeek
 import java.time.LocalDate
+import java.time.temporal.ChronoUnit
+import java.time.temporal.TemporalAdjusters
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -171,7 +173,10 @@ class ScheduleViewModel(app: Application) : AndroidViewModel(app) {
         _semesterName.value = SemesterStore.semesterName(ctx)
         _firstMonday.value = SemesterStore.firstWeekMonday(ctx)
         _startDateRaw.value = SemesterStore.startDateRaw(ctx)
-        _selectedWeek.value = w
+        // 重新锚定之后「今天」落在第几周就由新的 firstMonday 推出来。
+        // 用 currentWeek() 而不是直接写 w —— 语义上改的是"今天是第几周"，
+        // 视图跟着"今天所在的周"走，而不是"跳到用户填的那个数字"。
+        _selectedWeek.value = SemesterStore.currentWeek(ctx)
         rescheduleReminders()
     }
 
@@ -287,6 +292,21 @@ class ScheduleViewModel(app: Application) : AndroidViewModel(app) {
         weekDates.combine(_today) { dates, today ->
             dates.indexOfFirst { it == today }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), -1)
+
+    /**
+     * **今天实际是第几周** —— 由「开学日期 + 今天」推出来。
+     *
+     * ⚠️ 别拿 [selectedWeek] 顶替：那个是**正在浏览的那一周**，点 ‹ › 翻周就会变。
+     * 侧边栏「设置当前周次」必须显示这个值，否则用户翻到第 3 周时抽屉里写着"第 3 周"，
+     * 会让人以为今天就是第 3 周，一点确定就把开学日期锚错了。
+     *
+     * 声明位置必须在 [_today] 之后 —— Kotlin 属性按声明顺序初始化，
+     * 放前面会在构造期读到还没赋值的字段。
+     */
+    val currentWeek: StateFlow<Int> = combine(_firstMonday, _today) { first, today ->
+        val monday = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+        (ChronoUnit.WEEKS.between(first, monday) + 1).toInt().coerceAtLeast(1)
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, SemesterStore.currentWeek(app))
 
     /** 日视图标题：如 "10月6日 周二"。 */
     val selectedDayLabel: StateFlow<String> =

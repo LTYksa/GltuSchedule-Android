@@ -17,8 +17,8 @@ android {
         applicationId = "com.ltyksa.gltuschedule"
         minSdk = 26
         targetSdk = 35
-        versionCode = 11
-        versionName = "0.11beta"
+        versionCode = 14
+        versionName = "0.14.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }

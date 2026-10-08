@@ -21,16 +21,22 @@ open class ScheduleWidgetProvider : AppWidgetProvider() {
         for (id in appWidgetIds) {
             updateWidget(context, appWidgetManager, id)
         }
+        // 每次系统周期刷新时顺带把「准点刷新」续上（23:30 / 最后一节课下课）
+        WidgetRefreshScheduler.schedule(context)
     }
 
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
         if (intent.action == ACTION_REFRESH) {
-            val mgr = AppWidgetManager.getInstance(context)
-            // 动态取当前子类的 ComponentName，覆盖所有规格
-            val ids = mgr.getAppWidgetIds(ComponentName(context, this::class.java))
-            onUpdate(context, mgr, ids)
+            // 刷新全部规格，并把下一次准点刷新排上
+            refreshAll(context)
         }
+    }
+
+    override fun onDisabled(context: Context) {
+        super.onDisabled(context)
+        // 桌面上已经没有小部件了 → 撤掉准点闹钟，别白耗电
+        WidgetRefreshScheduler.cancel(context)
     }
 
     companion object {
@@ -67,15 +73,20 @@ open class ScheduleWidgetProvider : AppWidgetProvider() {
             mgr.notifyAppWidgetViewDataChanged(id, R.id.widget_list)
         }
 
-        /** 标题：与课表页同一套周次/学期信息。 */
+        /** 标题：与课表页同一套周次/学期信息。23:30 之后标题也跟着切到明天。 */
         private fun buildTitle(context: Context): String {
-            val today = LocalDate.now()
-            val dateText = "${today.monthValue}月${today.dayOfMonth}日 " + weekdayCn(today.dayOfWeek)
-            val holiday = HolidayManager.holidayNameOf(context, today)
-            return if (holiday != null && HolidayManager.isBlocked(context, today)) {
-                "$dateText · $holiday"
+            val now = java.time.LocalDateTime.now()
+            val date = WidgetTiming.displayDate(now)
+            val isTomorrow = date != now.toLocalDate()
+            val dateText = "${date.monthValue}月${date.dayOfMonth}日 " + weekdayCn(date.dayOfWeek)
+            val dayTag = if (isTomorrow) "明天 · " else ""
+            val holiday = HolidayManager.holidayNameOf(context, date)
+            return if (holiday != null && HolidayManager.isBlocked(context, date)) {
+                "$dayTag$dateText · $holiday"
             } else {
-                "第 ${SemesterStore.currentWeek(context)} 周 · $dateText"
+                // 用「显示日」所在的周次，而不是「今天」的 —— 23:30 后要跟着变
+                val week = SemesterStore.weekOf(context, date).coerceAtLeast(1)
+                "第 $week 周 · $dateText"
             }
         }
 
@@ -102,6 +113,8 @@ open class ScheduleWidgetProvider : AppWidgetProvider() {
                     updateWidget(context, mgr, id)
                 }
             }
+            // 数据变了 → 最后一节课的下课时刻也可能变，重排准点刷新
+            WidgetRefreshScheduler.schedule(context)
         }
     }
 }

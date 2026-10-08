@@ -447,7 +447,7 @@ fun SettingsScreen(
                         color = MaterialTheme.colorScheme.primaryContainer,
                     ) {
                         Text(
-                            "v${AppInfo.VERSION}",
+                            "v${AppInfo.version(context)}",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onPrimaryContainer,
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
